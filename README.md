@@ -1,88 +1,62 @@
 #!/usr/bin/env bash
-# curl -fsSL https://raw.githubusercontent.com/pkaodev/personal-access-technology>/main/README.md | bash
-set -e
+# curl -fsSL https://raw.githubusercontent.com/pkaodev/personal-access-technology/main/install.sh | bash
+set -euo pipefail
 
-# -----------------------------
-# CONFIG
-# -----------------------------
-PRIVATE_REPO="pkaodev/_pat"
-INSTALL_DIR="$HOME/.pat/"
-
-# -----------------------------
-# FUNCTIONS
-# -----------------------------
+install_homebrew() {
+    NONINTERACTIVE=1 /bin/bash -c \
+        "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
+        >/dev/null
+    eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv)"
+}
 
 install_gh_cli() {
-    echo "[+] GitHub CLI not found. Installing..."
     if [[ "$(uname)" == "Darwin" ]]; then
-        # macOS
-        if ! command -v brew >/dev/null 2>&1; then
-            echo "Homebrew not found. Please install Homebrew first: https://brew.sh/"
-            exit 1
-        fi
-        brew install gh
+        command -v brew >/dev/null 2>&1 || install_homebrew
+        brew install gh >/dev/null
     else
-        # Linux (Debian/Ubuntu example)
-        sudo apt update
-        sudo apt install -y gh
+        sudo apt-get update -qq
+        sudo apt-get install -y gh >/dev/null
     fi
 }
 
 authenticate() {
-    echo "[+] Authenticating with GitHub..."
-    gh auth login --hostname github.com --git-protocol ssh
+    gh auth login \
+        --hostname github.com \
+        --git-protocol ssh \
+        --web \
+        --skip-ssh-key \
+        >/dev/null
 }
 
 clone_or_update_repo() {
-    if [[ -d "$INSTALL_DIR/.git" ]]; then
-        echo "[+] Repository exists. Fetching updates..."
-        cd "$INSTALL_DIR"
-        git fetch origin
+    if [[ -d "$HOME/.pat/.git" ]]; then
+        git -C "$HOME/.pat" fetch -q origin
     else
-        echo "[+] Cloning private repository..."
-        gh repo clone "_pat" "$INSTALL_DIR"
-        cd "$INSTALL_DIR"
+        gh repo clone pkaodev/_pat "$HOME/.pat" >/dev/null
     fi
 }
 
 checkout_machine_branch() {
-    MACHINE_BRANCH="machine/$(hostname -s)"
-    echo "[+] Switching to machine-specific branch: $MACHINE_BRANCH"
-    git checkout -B "$MACHINE_BRANCH"
+    git -C "$HOME/.pat" checkout -q -B "machine/$(hostname -s)"
 }
 
 install_app() {
-    echo "[+] Installing app..."
-    if [[ -f "Makefile" ]]; then
-        make install
+    if [[ -f "$HOME/.pat/Makefile" ]]; then
+        make -C "$HOME/.pat" remote-install >/dev/null
     else
-        echo "No Makefile detected. Please add installation commands."
+        echo "Error: Makefile not found in repository." >&2
+        exit 1
     fi
 }
 
 # -----------------------------
-# MAIN SCRIPT
+# MAIN
 # -----------------------------
 
-# Step 1: Ensure gh CLI
-if ! command -v gh >/dev/null 2>&1; then
-    install_gh_cli
-fi
-
-# Step 2: Authenticate
-if ! gh auth status >/dev/null 2>&1; then
-    authenticate
-else
-    echo "[+] Already authenticated with GitHub."
-fi
-
-# Step 3: Clone or update private repo
+command -v gh >/dev/null 2>&1 || install_gh_cli
+gh auth status --hostname github.com >/dev/null 2>&1 || authenticate
 clone_or_update_repo
-
-# Step 4: Checkout machine branch
 checkout_machine_branch
-
-# Step 5: Install
 install_app
 
-echo "[+] Installation complete!"
+echo "PAT installation complete."
